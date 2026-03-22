@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -42,9 +42,32 @@ class AgentDefaults(Base):
 
 
 class AgentsConfig(Base):
-    """Agent configuration."""
+    """Agent configuration.
 
+    Extra fields are parsed as additional named agent configs (e.g. tencent_server).
+    """
+
+    model_config = ConfigDict(extra="allow")
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+
+    def get_agent(self, name: str | None = None) -> AgentDefaults:
+        """Get agent config by name. None or 'defaults' returns the default agent."""
+        if not name or name == "defaults":
+            return self.defaults
+        extra = self.__pydantic_extra__ or {}
+        raw = extra.get(name)
+        if raw is None:
+            available = ["defaults"] + list(extra.keys())
+            raise ValueError(f"Agent '{name}' not found. Available: {available}")
+        if isinstance(raw, dict):
+            return AgentDefaults(**raw)
+        return raw
+
+    def list_agents(self) -> list[str]:
+        """List all available agent names."""
+        names = ["defaults"]
+        names.extend(self.__pydantic_extra__ or {})
+        return names
 
 
 class ProviderConfig(Base):
@@ -156,6 +179,8 @@ class ToolsConfig(Base):
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
+    _active_agent: str | None = PrivateAttr(default=None)
+
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
@@ -163,9 +188,14 @@ class Config(BaseSettings):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
     @property
+    def active_defaults(self) -> AgentDefaults:
+        """Get the currently active agent's defaults."""
+        return self.agents.get_agent(self._active_agent)
+
+    @property
     def workspace_path(self) -> Path:
         """Get expanded workspace path."""
-        return Path(self.agents.defaults.workspace).expanduser()
+        return Path(self.active_defaults.workspace).expanduser()
 
     def _match_provider(
         self, model: str | None = None
@@ -173,12 +203,12 @@ class Config(BaseSettings):
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from nanobot.providers.registry import PROVIDERS
 
-        forced = self.agents.defaults.provider
+        forced = self.active_defaults.provider
         if forced != "auto":
             p = getattr(self.providers, forced, None)
             return (p, forced) if p else (None, None)
 
-        model_lower = (model or self.agents.defaults.model).lower()
+        model_lower = (model or self.active_defaults.model).lower()
         model_normalized = model_lower.replace("-", "_")
         model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
         normalized_prefix = model_prefix.replace("-", "_")
