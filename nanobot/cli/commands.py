@@ -367,7 +367,7 @@ def _make_provider(config: Config):
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
-    model = config.agents.defaults.model
+    model = config.active_defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
 
@@ -411,7 +411,7 @@ def _make_provider(config: Config):
             provider_name=provider_name,
         )
 
-    defaults = config.agents.defaults
+    defaults = config.active_defaults
     provider.generation = GenerationSettings(
         temperature=defaults.temperature,
         max_tokens=defaults.max_tokens,
@@ -420,8 +420,10 @@ def _make_provider(config: Config):
     return provider
 
 
-def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
-    """Load config and optionally override the active workspace."""
+def _load_runtime_config(
+    config: str | None = None, workspace: str | None = None, agent_name: str | None = None,
+) -> Config:
+    """Load config and optionally override the active workspace and agent."""
     from nanobot.config.loader import load_config, set_config_path
 
     config_path = None
@@ -434,14 +436,25 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
         console.print(f"[dim]Using config: {config_path}[/dim]")
 
     loaded = load_config(config_path)
+
+    if agent_name:
+        # Validate the agent name exists before setting it
+        try:
+            loaded.agents.get_agent(agent_name)
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(1)
+        loaded._active_agent = agent_name
+        console.print(f"[dim]Using agent: {agent_name}[/dim]")
+
     if workspace:
-        loaded.agents.defaults.workspace = workspace
+        loaded.active_defaults.workspace = workspace
     return loaded
 
 
 def _print_deprecated_memory_window_notice(config: Config) -> None:
     """Warn when running with old memoryWindow-only config."""
-    if config.agents.defaults.should_warn_deprecated_memory_window:
+    if config.active_defaults.should_warn_deprecated_memory_window:
         console.print(
             "[yellow]Hint:[/yellow] Detected deprecated `memoryWindow` without "
             "`contextWindowTokens`. `memoryWindow` is ignored; run "
@@ -460,6 +473,7 @@ def gateway(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    agent_name: str | None = typer.Option(None, "--agent", "-a", help="Agent config to use"),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
@@ -475,7 +489,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    config = _load_runtime_config(config, workspace)
+    config = _load_runtime_config(config, workspace, agent_name)
     _print_deprecated_memory_window_notice(config)
     port = port if port is not None else config.gateway.port
 
@@ -494,9 +508,9 @@ def gateway(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
-        model=config.agents.defaults.model,
-        max_iterations=config.agents.defaults.max_tool_iterations,
-        context_window_tokens=config.agents.defaults.context_window_tokens,
+        model=config.active_defaults.model,
+        max_iterations=config.active_defaults.max_tool_iterations,
+        context_window_tokens=config.active_defaults.context_window_tokens,
         web_search_config=config.tools.web.search,
         web_proxy=config.tools.web.proxy or None,
         exec_config=config.tools.exec,
@@ -657,6 +671,7 @@ def agent(
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
+    agent_name: str | None = typer.Option(None, "--agent", "-a", help="Agent config to use"),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -666,7 +681,7 @@ def agent(
     from nanobot.config.paths import get_cron_dir
     from nanobot.cron.service import CronService
 
-    config = _load_runtime_config(config, workspace)
+    config = _load_runtime_config(config, workspace, agent_name)
     _print_deprecated_memory_window_notice(config)
     sync_workspace_templates(config.workspace_path)
 
@@ -686,9 +701,9 @@ def agent(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
-        model=config.agents.defaults.model,
-        max_iterations=config.agents.defaults.max_tool_iterations,
-        context_window_tokens=config.agents.defaults.context_window_tokens,
+        model=config.active_defaults.model,
+        max_iterations=config.active_defaults.max_tool_iterations,
+        context_window_tokens=config.active_defaults.context_window_tokens,
         web_search_config=config.tools.web.search,
         web_proxy=config.tools.web.proxy or None,
         exec_config=config.tools.exec,
@@ -829,6 +844,45 @@ def agent(
                 await agent_loop.close_mcp()
 
         asyncio.run(run_interactive())
+
+
+# ============================================================================
+# Agent Config Commands
+# ============================================================================
+
+
+agents_app = typer.Typer(help="Manage agent configurations")
+app.add_typer(agents_app, name="agents")
+
+
+@agents_app.command("list")
+def agents_list(
+    config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """List all available agent configurations."""
+    from nanobot.config.loader import load_config, set_config_path
+
+    config_path = None
+    if config:
+        config_path = Path(config).expanduser().resolve()
+        set_config_path(config_path)
+
+    loaded = load_config(config_path)
+
+    table = Table(title="Agent Configurations")
+    table.add_column("Name", style="cyan")
+    table.add_column("Model", style="green")
+    table.add_column("Provider", style="magenta")
+    table.add_column("Workspace", style="dim")
+
+    for name in loaded.agents.list_agents():
+        try:
+            agent_cfg = loaded.agents.get_agent(name)
+            table.add_row(name, agent_cfg.model, agent_cfg.provider, agent_cfg.workspace)
+        except ValueError:
+            table.add_row(name, "[red]invalid[/red]", "", "")
+
+    console.print(table)
 
 
 # ============================================================================
@@ -1026,7 +1080,7 @@ def status():
     if config_path.exists():
         from nanobot.providers.registry import PROVIDERS
 
-        console.print(f"Model: {config.agents.defaults.model}")
+        console.print(f"Model: {config.active_defaults.model}")
 
         # Check API keys from registry
         for spec in PROVIDERS:
