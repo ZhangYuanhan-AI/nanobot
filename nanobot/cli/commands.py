@@ -747,6 +747,11 @@ def agent(
     from nanobot.config.paths import get_cron_dir
     from nanobot.cron.service import CronService
 
+    # Use per-agent session so conversation history from one agent doesn't
+    # contaminate another (e.g. a small model parroting old Claude responses).
+    if agent_name and session_id == "cli:direct":
+        session_id = f"cli:{agent_name}"
+
     config = _load_runtime_config(config, workspace, agent_name)
     sync_workspace_templates(config.workspace_path)
 
