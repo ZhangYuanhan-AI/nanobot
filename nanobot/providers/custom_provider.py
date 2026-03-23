@@ -9,6 +9,7 @@ import json_repair
 from openai import AsyncOpenAI
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from nanobot.providers.session_context import current_session_key
 
 
 class CustomProvider(LLMProvider):
@@ -25,17 +26,27 @@ class CustomProvider(LLMProvider):
             api_base = f"http://{api_base}"
         super().__init__(api_key, api_base)
         self.default_model = default_model
+        self._extra_headers = extra_headers or {}
         # Keep affinity stable for this provider instance to improve backend cache locality,
         # while still letting users attach provider-specific headers for custom gateways.
         default_headers = {
             "x-session-affinity": uuid.uuid4().hex,
-            **(extra_headers or {}),
+            **self._extra_headers,
         }
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=api_base,
             default_headers=default_headers,
         )
+
+    def _build_session_headers(self) -> dict[str, str]:
+        """Build OpenClaw-RL session headers from the current context."""
+        headers: dict[str, str] = {}
+        session_key = current_session_key.get()
+        if session_key:
+            headers["X-Session-Id"] = session_key
+            headers["X-Turn-Type"] = "main"
+        return headers
 
     async def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
                    model: str | None = None, max_tokens: int = 4096, temperature: float = 0.7,
@@ -51,6 +62,12 @@ class CustomProvider(LLMProvider):
             kwargs["reasoning_effort"] = reasoning_effort
         if tools:
             kwargs.update(tools=tools, tool_choice=tool_choice or "auto")
+
+        # Inject per-request OpenClaw-RL session headers if available.
+        session_headers = self._build_session_headers()
+        if session_headers:
+            kwargs["extra_headers"] = session_headers
+
         try:
             return self._parse(await self._client.chat.completions.create(**kwargs))
         except Exception as e:

@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
+from nanobot.providers.session_context import current_session_key, RLSessionTracker
+
 from nanobot import __version__
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryConsolidator
@@ -102,6 +104,7 @@ class AgentLoop:
         )
 
         self._running = False
+        self._rl_sessions = RLSessionTracker()
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
@@ -429,6 +432,48 @@ class AgentLoop:
         self._running = False
         logger.info("Agent loop stopping")
 
+    async def _send_session_done(self, rl_session_id: str) -> None:
+        """Send a lightweight request to OpenClaw-RL to signal session end.
+
+        This tells the training server to flush pending samples and clean up
+        state for the given session.  Uses a minimal chat completion request
+        with the X-Session-Done header.
+        """
+        import httpx
+
+        api_base = getattr(self.provider, "api_base", None)
+        if not api_base:
+            return
+        # Derive the chat completions URL from the provider's base URL.
+        url = api_base.rstrip("/")
+        if not url.endswith("/chat/completions"):
+            url = f"{url}/chat/completions"
+
+        headers: dict[str, str] = {
+            "X-Session-Id": rl_session_id,
+            "X-Turn-Type": "side",
+            "X-Session-Done": "true",
+        }
+        api_key = getattr(self.provider, "api_key", None)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        model = getattr(self.provider, "default_model", "default")
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": "(session ended)"}],
+            "max_tokens": 1,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, json=body, headers=headers)
+                logger.info(
+                    "Sent session_done for RL session {} (status={})",
+                    rl_session_id, resp.status_code,
+                )
+        except Exception as e:
+            logger.warning("Failed to send session_done for {}: {}", rl_session_id, e)
+
     async def _process_message(
         self,
         msg: InboundMessage,
@@ -453,6 +498,7 @@ class AgentLoop:
                 current_message=msg.content, channel=channel, chat_id=chat_id,
                 current_role=current_role,
             )
+            current_session_key.set(self._rl_sessions.get(key))
             final_content, _, all_msgs = await self._run_agent_loop(messages)
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
@@ -476,6 +522,11 @@ class AgentLoop:
 
             if snapshot:
                 self._schedule_background(self.memory_consolidator.archive_messages(snapshot))
+
+            # Rotate RL session and notify OpenClaw-RL that the old session ended.
+            old_rl_session = self._rl_sessions.rotate(key)
+            if old_rl_session:
+                self._schedule_background(self._send_session_done(old_rl_session))
 
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="New session started.")
@@ -519,6 +570,7 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
+        current_session_key.set(self._rl_sessions.get(key))
         final_content, _, all_msgs = await self._run_agent_loop(
             initial_messages, on_progress=on_progress or _bus_progress,
         )
