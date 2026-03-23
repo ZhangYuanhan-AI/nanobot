@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -84,6 +85,41 @@ class CustomProvider(LLMProvider):
                 return LLMResponse(content=f"Error: {body.strip()[:500]}", finish_reason="error")
             return LLMResponse(content=f"Error: {e}", finish_reason="error")
 
+    @staticmethod
+    def _extract_text_tool_calls(content: str) -> tuple[str, list[ToolCallRequest]]:
+        """Extract ``<tool_call>`` XML blocks that some models (e.g. Qwen) embed in text content.
+
+        Returns ``(cleaned_content, tool_calls)`` where *cleaned_content* has the
+        XML tags and their JSON payloads stripped out, and *tool_calls* is a list of
+        parsed ``ToolCallRequest`` objects.
+        """
+        pattern = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
+        tool_calls: list[ToolCallRequest] = []
+        for match in pattern.finditer(content):
+            raw = match.group(1).strip()
+            try:
+                parsed = json_repair.loads(raw)
+            except Exception:
+                continue
+            name = parsed.get("name") or parsed.get("function", {}).get("name")
+            arguments = parsed.get("arguments") or parsed.get("function", {}).get("arguments") or {}
+            if not name:
+                continue
+            if isinstance(arguments, str):
+                try:
+                    arguments = json_repair.loads(arguments)
+                except Exception:
+                    arguments = {}
+            tool_calls.append(
+                ToolCallRequest(
+                    id=f"xmlcall_{uuid.uuid4().hex[:12]}",
+                    name=name,
+                    arguments=arguments,
+                )
+            )
+        cleaned = pattern.sub("", content).strip()
+        return cleaned, tool_calls
+
     def _parse(self, response: Any) -> LLMResponse:
         if not response.choices:
             return LLMResponse(
@@ -102,11 +138,20 @@ class CustomProvider(LLMProvider):
             )
             for tc in (msg.tool_calls or [])
         ]
+
+        content = msg.content
+
+        # Fallback: some models (e.g. Qwen) return tool calls as <tool_call> XML
+        # blocks in text content instead of structured tool_calls.
+        if not tool_calls and content and "<tool_call>" in content:
+            content, tool_calls = self._extract_text_tool_calls(content)
+
         u = response.usage
+        finish_reason = "tool_calls" if tool_calls else (choice.finish_reason or "stop")
         return LLMResponse(
-            content=msg.content,
+            content=content,
             tool_calls=tool_calls,
-            finish_reason=choice.finish_reason or "stop",
+            finish_reason=finish_reason,
             usage={
                 "prompt_tokens": u.prompt_tokens,
                 "completion_tokens": u.completion_tokens,
