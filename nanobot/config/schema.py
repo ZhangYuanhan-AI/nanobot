@@ -79,7 +79,13 @@ class ProviderConfig(Base):
 
 
 class ProvidersConfig(Base):
-    """Configuration for LLM providers."""
+    """Configuration for LLM providers.
+
+    Built-in providers are defined as typed fields below.
+    Custom provider entries (e.g. "tencent_server") are stored as extra fields.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     azure_openai: ProviderConfig = Field(default_factory=ProviderConfig)  # Azure OpenAI (model = deployment name)
@@ -197,6 +203,17 @@ class Config(BaseSettings):
         """Get expanded workspace path."""
         return Path(self.active_defaults.workspace).expanduser()
 
+    def _resolve_provider_attr(self, name: str) -> "ProviderConfig | None":
+        """Get a provider config by name, converting extra-field dicts to ProviderConfig."""
+        val = getattr(self.providers, name, None)
+        if val is None:
+            return None
+        if isinstance(val, ProviderConfig):
+            return val
+        if isinstance(val, dict):
+            return ProviderConfig(**val)
+        return None
+
     def _match_provider(
         self, model: str | None = None
     ) -> tuple["ProviderConfig | None", str | None]:
@@ -205,7 +222,7 @@ class Config(BaseSettings):
 
         forced = self.active_defaults.provider
         if forced != "auto":
-            p = getattr(self.providers, forced, None)
+            p = self._resolve_provider_attr(forced)
             return (p, forced) if p else (None, None)
 
         model_lower = (model or self.active_defaults.model).lower()

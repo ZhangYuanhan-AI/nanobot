@@ -20,6 +20,9 @@ class CustomProvider(LLMProvider):
         default_model: str = "default",
         extra_headers: dict[str, str] | None = None,
     ):
+        # Auto-add http:// if no scheme provided (e.g. "1.2.3.4:8081/v1")
+        if api_base and "://" not in api_base:
+            api_base = f"http://{api_base}"
         super().__init__(api_key, api_base)
         self.default_model = default_model
         # Keep affinity stable for this provider instance to improve backend cache locality,
