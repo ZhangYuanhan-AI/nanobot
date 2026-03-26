@@ -2,11 +2,12 @@
 
 模拟 Linux 无桌面环境（has_display() = False），验证修复后的代码路径。
 """
+
 from __future__ import annotations
 
 import argparse
 import sys
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,12 +16,14 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
 
 # ---------- 工具 ----------
 
+
 def _make_args(**kwargs) -> argparse.Namespace:
     defaults = dict(host="127.0.0.1", port=9222, account="")
     return argparse.Namespace(**{**defaults, **kwargs})
 
 
 # ---------- Bug 2：_connect / _connect_existing ----------
+
 
 class TestConnectHeadless:
     """_connect 和 _connect_existing 在无头环境下应传 headless=True。"""
@@ -36,6 +39,7 @@ class TestConnectHeadless:
             patch("xhs.cdp.Browser", return_value=mock_browser_inst),
         ):
             import cli
+
             cli._connect(_make_args())
 
         mock_ensure.assert_called_once_with(port=9222, headless=True)
@@ -51,6 +55,7 @@ class TestConnectHeadless:
             patch("xhs.cdp.Browser", return_value=mock_browser_inst),
         ):
             import cli
+
             cli._connect(_make_args())
 
         mock_ensure.assert_called_once_with(port=9222, headless=False)
@@ -66,12 +71,14 @@ class TestConnectHeadless:
             patch("xhs.cdp.Browser", return_value=mock_browser_inst),
         ):
             import cli
+
             cli._connect_existing(_make_args())
 
         mock_ensure.assert_called_once_with(port=9222, headless=True)
 
 
 # ---------- Bug 1：send-code RateLimitError 重启 ----------
+
 
 class TestSendCodeRateLimit:
     """触发频率限制时，重启 Chrome 应使用正确的 headless 参数。"""
@@ -93,6 +100,7 @@ class TestSendCodeRateLimit:
             pytest.raises(SystemExit),  # _output 会 sys.exit
         ):
             import cli
+
             cli.cmd_send_code(_make_args(phone="13800138000"))
 
         return mock_restart
@@ -108,6 +116,7 @@ class TestSendCodeRateLimit:
 
 # ---------- Bug 3：_headless_fallback ----------
 
+
 class TestHeadlessFallback:
     """_headless_fallback 在有/无桌面时行为应不同。"""
 
@@ -117,11 +126,14 @@ class TestHeadlessFallback:
             patch("chrome_launcher.restart_chrome") as mock_restart,
             pytest.raises(SystemExit) as exc_info,
         ):
-            import io, json
+            import io
+            import json
             from contextlib import redirect_stdout
+
             buf = io.StringIO()
             with redirect_stdout(buf):
                 import cli
+
                 cli._headless_fallback(port=9222)
 
         mock_restart.assert_not_called()
@@ -137,6 +149,7 @@ class TestHeadlessFallback:
             pytest.raises(SystemExit),
         ):
             import cli
+
             cli._headless_fallback(port=9222)
 
         mock_restart.assert_called_once_with(port=9222, headless=False)

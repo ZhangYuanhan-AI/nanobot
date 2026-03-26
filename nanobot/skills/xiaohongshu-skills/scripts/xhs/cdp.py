@@ -535,7 +535,9 @@ class Page:
         try:
             doc = self._send_session("DOM.getDocument", {"depth": 0})
             root_id = doc["root"]["nodeId"]
-            query = self._send_session("DOM.querySelector", {"nodeId": root_id, "selector": selector})
+            query = self._send_session(
+                "DOM.querySelector", {"nodeId": root_id, "selector": selector}
+            )
             node_id = query.get("nodeId", 0)
             if not node_id:
                 return b""

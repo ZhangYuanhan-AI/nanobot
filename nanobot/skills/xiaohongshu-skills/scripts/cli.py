@@ -15,6 +15,7 @@ import os
 import sys
 import tempfile
 
+
 def _session_tab_file(port: int) -> str:
     """返回指定端口的 session tab 文件路径（每账号独立隔离）。"""
     return os.path.join(tempfile.gettempdir(), "xhs", f"session_tab_{port}.txt")
@@ -61,6 +62,7 @@ def _load_session_tab(port: int) -> str | None:
 def _clear_session_tab(port: int) -> None:
     with contextlib.suppress(FileNotFoundError):
         os.remove(_session_tab_file(port))
+
 
 # Windows 控制台默认编码（如 cp1252）不支持中文，强制 UTF-8
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -251,6 +253,7 @@ def _headless_fallback(port: int) -> None:
             exit_code=1,
         )
 
+
 def _qrcode_fallback(browser, page, args: argparse.Namespace) -> None:
     """频率限制时刷新页面返回二维码，让 AI 直接展示给用户扫码。"""
     from xhs.login import (
@@ -284,8 +287,7 @@ def _qrcode_fallback(browser, page, args: argparse.Namespace) -> None:
         "qrcode_path": qrcode_path,
         "qrcode_image_url": image_url,
         "message": (
-            "验证码发送受限，已切换为二维码登录，请扫码。"
-            "扫码后运行 wait-login 等待登录结果。"
+            "验证码发送受限，已切换为二维码登录，请扫码。扫码后运行 wait-login 等待登录结果。"
         ),
     }
     if login_url:
@@ -335,10 +337,7 @@ def cmd_check_login(args: argparse.Namespace) -> None:
             result["qr_login_url"] = login_url
         if has_display():
             result["login_method"] = "qrcode"
-            result["hint"] = (
-                "未登录，二维码已自动生成。"
-                "扫码后运行 wait-login 等待登录结果"
-            )
+            result["hint"] = "未登录，二维码已自动生成。扫码后运行 wait-login 等待登录结果"
         else:
             result["login_method"] = "both"
             result["hint"] = (
@@ -408,10 +407,7 @@ def cmd_phone_login(args: argparse.Namespace) -> None:
             json.dumps(
                 {
                     "status": "code_sent",
-                    "message": (
-                        f"验证码已发送至 "
-                        f"{args.phone[:3]}****{args.phone[-4:]}"
-                    ),
+                    "message": (f"验证码已发送至 {args.phone[:3]}****{args.phone[-4:]}"),
                 },
                 ensure_ascii=False,
             ),
@@ -489,8 +485,7 @@ def cmd_get_qrcode(args: argparse.Namespace) -> None:
     result: dict = {
         "qrcode_path": qrcode_path,
         "qrcode_image_url": image_url,
-        "message": "二维码已生成，请扫码登录。"
-        "扫码后运行 wait-login 等待登录结果。",
+        "message": "二维码已生成，请扫码登录。扫码后运行 wait-login 等待登录结果。",
     }
     if login_url:
         result["qr_login_url"] = login_url
@@ -513,7 +508,9 @@ def cmd_wait_login(args: argparse.Namespace) -> None:
         _output(
             {
                 "logged_in": success,
-                "message": "登录成功" if success else "等待超时，请重新运行 get-qrcode 获取新二维码",
+                "message": "登录成功"
+                if success
+                else "等待超时，请重新运行 get-qrcode 获取新二维码",
             },
             exit_code=0 if success else 2,
         )
@@ -540,13 +537,15 @@ def cmd_send_code(args: argparse.Namespace) -> None:
         _save_login_tab(page.target_id, args.port)
         # 清除 session tab 引用——隔离登录表单，防止其他命令复用并关闭/导航该 tab
         _clear_session_tab(args.port)
-        _output({
-            "status": "code_sent",
-            "message": (
-                f"验证码已发送至 {args.phone[:3]}****{args.phone[-4:]}，"
-                "请运行 verify-code --code <验证码>"
-            ),
-        })
+        _output(
+            {
+                "status": "code_sent",
+                "message": (
+                    f"验证码已发送至 {args.phone[:3]}****{args.phone[-4:]}，"
+                    "请运行 verify-code --code <验证码>"
+                ),
+            }
+        )
     except RateLimitError:
         # 频率限制——直接切换二维码登录
         logger.info("验证码发送受限，切换为二维码登录")

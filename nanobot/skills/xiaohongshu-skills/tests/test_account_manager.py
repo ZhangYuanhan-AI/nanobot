@@ -1,4 +1,5 @@
 """account_manager 单元测试。"""
+
 from __future__ import annotations
 
 import sys
@@ -15,9 +16,7 @@ import account_manager
 def tmp_config(tmp_path, monkeypatch):
     """将配置目录重定向到临时目录。"""
     monkeypatch.setattr(account_manager, "_CONFIG_DIR", tmp_path / ".xhs")
-    monkeypatch.setattr(
-        account_manager, "_ACCOUNTS_FILE", tmp_path / ".xhs" / "accounts.json"
-    )
+    monkeypatch.setattr(account_manager, "_ACCOUNTS_FILE", tmp_path / ".xhs" / "accounts.json")
 
 
 def test_add_account_assigns_port():

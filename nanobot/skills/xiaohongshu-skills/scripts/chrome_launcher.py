@@ -264,7 +264,10 @@ def ensure_chrome(
 
     try:
         launch_chrome(
-            port=port, headless=headless, user_data_dir=user_data_dir, chrome_bin=chrome_bin,
+            port=port,
+            headless=headless,
+            user_data_dir=user_data_dir,
+            chrome_bin=chrome_bin,
         )
         return is_port_open(port)
     except FileNotFoundError as e:

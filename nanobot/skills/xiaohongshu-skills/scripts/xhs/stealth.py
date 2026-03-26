@@ -73,9 +73,7 @@ def _build_platform_config() -> dict:
                 "wow64": False,
             },
             "webgl_vendor": "Google Inc. (Intel)",
-            "webgl_renderer": (
-                "ANGLE (Intel, Intel(R) UHD Graphics 630 (CML GT2), Direct3D11)"
-            ),
+            "webgl_renderer": ("ANGLE (Intel, Intel(R) UHD Graphics 630 (CML GT2), Direct3D11)"),
         }
 
     # Linux
@@ -98,9 +96,7 @@ def _build_platform_config() -> dict:
             "wow64": False,
         },
         "webgl_vendor": "Google Inc. (Mesa)",
-        "webgl_renderer": (
-            "ANGLE (Mesa, Mesa Intel(R) UHD Graphics 630 (CML GT2), OpenGL 4.6)"
-        ),
+        "webgl_renderer": ("ANGLE (Mesa, Mesa Intel(R) UHD Graphics 630 (CML GT2), OpenGL 4.6)"),
     }
 
 
@@ -181,6 +177,7 @@ def build_ua_override(chrome_full_ver: str | None = None) -> dict:
             "wow64": False,
         },
     }
+
 
 # ---------------------------------------------------------------------------
 # 反检测 JS 脚本模板（$$占位符$$ 由 Python 替换为平台值）
@@ -295,11 +292,9 @@ _STEALTH_JS_TEMPLATE = """
 })();
 """
 
-STEALTH_JS = (
-    _STEALTH_JS_TEMPLATE
-    .replace("$$WEBGL_VENDOR$$", PLATFORM_CONFIG["webgl_vendor"])
-    .replace("$$WEBGL_RENDERER$$", PLATFORM_CONFIG["webgl_renderer"])
-)
+STEALTH_JS = _STEALTH_JS_TEMPLATE.replace(
+    "$$WEBGL_VENDOR$$", PLATFORM_CONFIG["webgl_vendor"]
+).replace("$$WEBGL_RENDERER$$", PLATFORM_CONFIG["webgl_renderer"])
 
 # Chrome 启动参数（反检测相关）
 STEALTH_ARGS = [
