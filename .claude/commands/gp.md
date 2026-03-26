@@ -1,3 +1,7 @@
+---
+description: "Git add, commit, and push with auto-generated commit message"
+---
+
 Run the following git commands in sequence:
 
 1. `git add -A`
