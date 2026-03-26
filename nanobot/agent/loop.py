@@ -12,9 +12,6 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
-from nanobot.providers.session_context import current_session_key, RLSessionTracker
-
-from nanobot import __version__
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
@@ -30,6 +27,7 @@ from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
 from nanobot.providers.base import LLMProvider
+from nanobot.providers.session_context import RLSessionTracker, current_session_key
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.helpers import trim_history_for_budget
 
@@ -556,7 +554,8 @@ class AgentLoop:
                 resp = await client.post(url, json=body, headers=headers)
                 logger.info(
                     "Sent session_done for RL session {} (status={})",
-                    rl_session_id, resp.status_code,
+                    rl_session_id,
+                    resp.status_code,
                 )
         except Exception as e:
             logger.warning("Failed to send session_done for {}: {}", rl_session_id, e)
